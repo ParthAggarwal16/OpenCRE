@@ -16,20 +16,25 @@ class ChangeDetector:
             commit_sha,
         )
 
-        result = subprocess.run(
-            [
-                "git",
-                "-C",
-                str(self.repository_client.get_local_path()),
-                "diff",
-                "--name-only",
-                commit_sha,
-                "HEAD",
-            ],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
+        try:
+            result = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(self.repository_client.get_local_path()),
+                    "diff",
+                    "--name-only",
+                    commit_sha,
+                    "HEAD",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=60,
+            )
+        except subprocess.CalledProcessError as exc:
+            logger.error("Git command failed: %s", exc.stderr)
+            raise
 
         files = [
             file_path for file_path in result.stdout.splitlines() if file_path.strip()
@@ -38,18 +43,31 @@ class ChangeDetector:
         return sorted(set(files))
 
     def get_commits_since(self, commit_sha: str) -> list[str]:
-        result = subprocess.run(
-            [
-                "git",
-                "-C",
-                str(self.repository_client.get_local_path()),
-                "log",
-                "--format=%H",
-                f"{commit_sha}..HEAD",
-            ],
-            capture_output=True,
-            text=True,
-            check=True,
+        try:
+            result = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(self.repository_client.get_local_path()),
+                    "log",
+                    "--format=%H",
+                    f"{commit_sha}..HEAD",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=60,
+            )
+        except subprocess.CalledProcessError as exc:
+            logger.error("Git command failed: %s", exc.stderr)
+            raise
+
+        commits = [sha for sha in result.stdout.splitlines() if sha.strip()]
+
+        logger.info(
+            "Detected %s commits since %s",
+            len(commits),
+            commit_sha,
         )
 
-        return [sha for sha in result.stdout.splitlines() if sha.strip()]
+        return commits
