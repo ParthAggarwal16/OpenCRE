@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from .file_filter import FileFilter
-from .filtering_metrics import FilteringMetrics
+from .models import FilteringMetrics
 
 
 @dataclass
@@ -26,11 +26,13 @@ class FilteringBenchmark:
         retained = self.file_filter.filter_files(file_paths)
 
         total = len(file_paths)
+        retained_count = len(retained)
+        filtered_count = total - retained_count
 
         return FilteringBenchmarkResult(
             total_files=total,
-            retained_files=self.metrics.retained_files,
-            filtered_files=self.metrics.filtered_files,
-            retention_rate=(self.metrics.retained_files / total if total else 0.0),
-            filtering_rate=(self.metrics.filtered_files / total if total else 0.0),
+            retained_files=retained_count,
+            filtered_files=filtered_count,
+            retention_rate=(retained_count / total if total else 0.0),
+            filtering_rate=(filtered_count / total if total else 0.0),
         )
