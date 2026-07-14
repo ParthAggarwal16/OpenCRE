@@ -42,7 +42,7 @@ class SourceInfo:
     type: str
     repository: str
     commit_sha: str
-    committed_at: datetime
+    committed_at: datetime | None
 
 
 @dataclass(slots=True)
@@ -80,4 +80,4 @@ class Document:
     source: SourceInfo
     locator: Locator
     heading_structure: list[HeadingNode]
-    span: SpanInfo
+    span: SpanInfo | None = None
