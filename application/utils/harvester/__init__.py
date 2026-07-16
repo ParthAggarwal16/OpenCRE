@@ -21,6 +21,7 @@ from .file_filter import FileFilter
 from .filtering_metrics import FilteringMetricsCollector
 from .diff_retriever import DiffRetriever
 
+
 from .filtering_benchmark import (
     FilteringBenchmark,
     FilteringBenchmarkResult,
@@ -33,21 +34,33 @@ from .heading_extractor import (
 
 from .document_builder import DocumentBuilder
 from .document_validator import DocumentValidator
+from .content_hash import generate_content_hash
+from .artifact_registry import ArtifactRegistry
+from .document_deduplicator import DocumentDeduplicator
+from .checkpoint_manager import CheckpointManager
+from .incremental_pipeline import IncrementalPipeline
+from .deduplication_metrics import DeduplicationMetrics
 
 __all__ = [
+    "ArtifactRegistry",
     "build_repository_cache_path",
+    "CheckpointManager",
     "ChunkingConfig",
     "ConfigLoaderError",
+    "DeduplicationMetrics",
     "DiffRetriever",
     "DocumentBuilder",
+    "DocumentDeduplicator",
     "DocumentValidator",
     "GitRepositoryClient",
     "FileFilter",
     "FilteringMetricsCollector",
     "FilteringBenchmark",
     "FilteringBenchmarkResult",
+    "generate_content_hash",
     "HeadingExtractor",
     "HeadingNode",
+    "IncrementalPipeline",
     "PathRules",
     "PollingConfig",
     "RepositoryClient",

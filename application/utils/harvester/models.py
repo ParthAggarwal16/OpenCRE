@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 from pydantic import BaseModel
+from enum import Enum
 
 
 @dataclass(slots=True)
@@ -81,3 +82,35 @@ class Document:
     locator: Locator
     heading_structure: list[HeadingNode]
     span: SpanInfo | None = None
+
+
+@dataclass(slots=True)
+class ArtifactRegistryRecord:
+    """
+    Tracks the processing state of an artifact.
+    Used for deduplication across pipeline runs.
+    """
+
+    artifact_id: str
+    repository: str
+    locator_path: str
+    content_hash: str
+    last_commit_sha: str
+    last_pipeline_run: str
+    last_processed_at: datetime
+    status: str
+
+
+class DeduplicationStatus(str, Enum):
+    NEW = "new"
+    UPDATED = "updated"
+    UNCHANGED = "unchanged"
+
+
+@dataclass(slots=True)
+class CheckpointRecord:
+    repository: str
+    pipeline_run_id: str
+    last_processed_commit: str
+    status: str
+    updated_at: datetime
