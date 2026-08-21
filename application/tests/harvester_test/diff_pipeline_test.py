@@ -1,6 +1,7 @@
-from datetime import UTC, datetime
+import os
 import time
 import unittest
+from datetime import UTC, datetime
 
 from application.utils.harvester.diff_normalizer import DiffNormalizer
 from application.utils.harvester.diff_parser import DiffParser
@@ -8,6 +9,10 @@ from application.utils.harvester.diff_retriever import DiffRetriever
 from application.utils.harvester.git_repository_client import GitRepositoryClient
 
 
+@unittest.skipUnless(
+    os.getenv("RUN_DIFF_PIPELINE_BENCHMARK") == "1",
+    "Diff pipeline benchmark requires RUN_DIFF_PIPELINE_BENCHMARK=1",
+)
 class DiffPipelineBenchmark(unittest.TestCase):
     """
     Simple benchmark to ensure the complete diff pipeline remains fast.
