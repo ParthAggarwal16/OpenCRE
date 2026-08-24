@@ -1,7 +1,8 @@
 from dataclasses import dataclass
 from datetime import datetime
-from pydantic import BaseModel
 from enum import Enum
+
+from pydantic import BaseModel
 
 
 @dataclass(slots=True)
@@ -118,3 +119,16 @@ class CheckpointRecord:
     last_processed_commit: str
     status: str
     updated_at: datetime
+
+
+@dataclass(slots=True)
+class IngestChunkRecord:
+    """
+    RFC-facing representation of a semantically chunked document.
+    """
+
+    schema_version: str
+    chunk_id: str
+    artifact_id: str
+    text: str
+    span: SpanInfo
