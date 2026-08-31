@@ -5,6 +5,8 @@ from application.utils.harvester.chunk_record_validator import (
 )
 from application.utils.harvester.models import (
     IngestChunkRecord,
+    Locator,
+    SourceInfo,
     SpanInfo,
 )
 
@@ -14,6 +16,7 @@ def valid_record() -> IngestChunkRecord:
         schema_version="0.2.0",
         chunk_id="chk:art:OWASP/OpenCRE:README.md:abc123",
         artifact_id="art:OWASP/OpenCRE:README.md",
+        pipeline_run_id="run-1",
         text="Some valid chunk content.",
         span=SpanInfo(
             heading_path=["Introduction"],
@@ -23,6 +26,17 @@ def valid_record() -> IngestChunkRecord:
             total=1,
             start_char_idx=0,
             end_char_idx=25,
+        ),
+        source=SourceInfo(
+            type="github",
+            repository="OWASP/OpenCRE",
+            commit_sha="abc123",
+            committed_at=None,
+        ),
+        locator=Locator(
+            kind="repo_path",
+            id="README.md",
+            path="README.md",
         ),
     )
 

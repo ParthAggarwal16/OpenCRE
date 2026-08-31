@@ -6,6 +6,12 @@ from datetime import datetime, timezone
 
 from application import create_app, sqla
 from application.database import db
+from application.utils.harvester.models import (
+    IngestChunkRecord,
+    Locator,
+    SourceInfo,
+    SpanInfo,
+)
 
 
 class TestImportRun(unittest.TestCase):
@@ -83,3 +89,71 @@ class TestImportRun(unittest.TestCase):
         self.assertEqual(json.loads(chunk.span_json), {"start": 0, "end": 11})
         self.assertEqual(json.loads(chunk.delta_json), {"op": "add"})
         self.assertIsNotNone(chunk.created_at)
+
+    def test_persist_complete_ingest_chunk_records(self) -> None:
+        run = db.create_import_run(source="artifact_ingest", version="1.0")
+        source = SourceInfo(
+            type="github",
+            repository="OWASP/ASVS",
+            commit_sha="abc123",
+            committed_at=None,
+        )
+        locator = Locator(
+            kind="repo_path",
+            id="README.md",
+            path="README.md",
+        )
+        records = [
+            IngestChunkRecord(
+                schema_version="0.2.0",
+                chunk_id="chk:one",
+                artifact_id="art:OWASP/ASVS:README.md",
+                pipeline_run_id=run.id,
+                text="first chunk",
+                span=SpanInfo(
+                    heading_path=["Introduction"],
+                    start_line=1,
+                    end_line=1,
+                    index=0,
+                    total=2,
+                    start_char_idx=0,
+                    end_char_idx=11,
+                ),
+                source=source,
+                locator=locator,
+            ),
+            IngestChunkRecord(
+                schema_version="0.2.0",
+                chunk_id="chk:two",
+                artifact_id="art:OWASP/ASVS:README.md",
+                pipeline_run_id=run.id,
+                text="second chunk",
+                span=SpanInfo(
+                    heading_path=["Introduction"],
+                    start_line=2,
+                    end_line=2,
+                    index=1,
+                    total=2,
+                    start_char_idx=12,
+                    end_char_idx=25,
+                ),
+                source=source,
+                locator=locator,
+            ),
+        ]
+
+        event, chunks = db.persist_ingest_chunk_records(
+            records=records,
+            harvest_mode="backfill",
+            event_type="discovered",
+            artifact_json={"id": records[0].artifact_id},
+            harvest_json={"status": "ok"},
+            observed_at=datetime.now(timezone.utc),
+        )
+
+        self.assertEqual(event.run_id, run.id)
+        self.assertEqual(json.loads(event.source_json)["repository"], "OWASP/ASVS")
+        self.assertEqual(json.loads(event.locator_json)["path"], "README.md")
+        self.assertEqual(len(chunks), 2)
+        self.assertEqual([chunk.chunk_id for chunk in chunks], ["chk:one", "chk:two"])
+        self.assertEqual(json.loads(chunks[0].span_json)["index"], 0)

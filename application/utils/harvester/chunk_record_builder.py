@@ -1,8 +1,13 @@
+from __future__ import annotations
+
 import hashlib
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from .models import Document, IngestChunkRecord, SpanInfo
-from .chunker import ChunkInfo
+
+if TYPE_CHECKING:
+    from .chunker import ChunkInfo
 
 
 @dataclass(slots=True)
@@ -50,6 +55,7 @@ class ChunkRecordBuilder:
                     schema_version=self.SCHEMA_VERSION,
                     chunk_id=chunk_id,
                     artifact_id=document.artifact_id,
+                    pipeline_run_id=document.pipeline_run_id,
                     text=chunk.text,
                     span=SpanInfo(
                         heading_path=heading_path,
@@ -60,6 +66,8 @@ class ChunkRecordBuilder:
                         start_char_idx=chunk.start_char_idx,
                         end_char_idx=chunk.end_char_idx,
                     ),
+                    source=document.source,
+                    locator=document.locator,
                 )
             )
 

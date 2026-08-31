@@ -52,6 +52,9 @@ from application.utils.gap_analysis import (
 )
 
 
+from dataclasses import asdict
+from datetime import datetime, timezone
+
 from .. import sqla  # type: ignore
 
 logging.basicConfig()
@@ -642,6 +645,65 @@ def create_ingest_chunk(
     sqla.session.add(chunk)
     sqla.session.commit()
     return chunk
+
+
+def persist_ingest_chunk_records(
+    *,
+    records: list[Any],
+    harvest_mode: str,
+    event_type: str,
+    artifact_json: Any,
+    harvest_json: Any,
+    observed_at: Any,
+) -> tuple[ArtifactIngestEvent, list[IngestChunk]]:
+    """Persist complete harvester records using the existing event/chunk schema."""
+    if not records:
+        raise ValueError("records must not be empty")
+
+    first = records[0]
+    for record in records[1:]:
+        if (
+            record.pipeline_run_id != first.pipeline_run_id
+            or record.artifact_id != first.artifact_id
+            or record.source != first.source
+            or record.locator != first.locator
+        ):
+            raise ValueError(
+                "records must share pipeline_run_id, artifact_id, source, and locator"
+            )
+
+    observed_at = _normalize_utc_datetime(observed_at)
+    event = ArtifactIngestEvent(
+        id=generate_uuid(),
+        run_id=first.pipeline_run_id,
+        artifact_id=first.artifact_id,
+        harvest_mode=harvest_mode,
+        event_type=event_type,
+        source_json=_serialize_json_value(asdict(first.source)),
+        locator_json=_serialize_json_value(asdict(first.locator)),
+        artifact_json=_serialize_json_value(artifact_json),
+        harvest_json=_serialize_json_value(harvest_json),
+        observed_at=observed_at,
+        created_at=_normalize_utc_datetime(datetime.now(timezone.utc)),
+    )
+    sqla.session.add(event)
+    sqla.session.flush()
+
+    chunks = [
+        IngestChunk(
+            id=generate_uuid(),
+            artifact_event_id=event.id,
+            chunk_id=record.chunk_id,
+            text=record.text,
+            char_count=len(record.text),
+            span_json=_serialize_json_value(asdict(record.span)),
+            created_at=_normalize_utc_datetime(datetime.now(timezone.utc)),
+        )
+        for record in records
+    ]
+    sqla.session.add_all(chunks)
+    sqla.session.commit()
+    return event, chunks
 
 
 def persist_standard_snapshot(

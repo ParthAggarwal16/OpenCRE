@@ -130,5 +130,8 @@ class IngestChunkRecord:
     schema_version: str
     chunk_id: str
     artifact_id: str
+    pipeline_run_id: str
     text: str
     span: SpanInfo
+    source: SourceInfo
+    locator: Locator

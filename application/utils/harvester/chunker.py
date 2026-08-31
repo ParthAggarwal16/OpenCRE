@@ -1,10 +1,22 @@
-from dataclasses import dataclass
+from __future__ import annotations
 
-from llama_index.core import Document as LlamaDocument
-from llama_index.core.node_parser import SemanticSplitterNodeParser
-from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-from llama_index.core.schema import TextNode
-from typing import cast
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+try:
+    from llama_index.core import Document as LlamaDocument
+    from llama_index.core.node_parser import SemanticSplitterNodeParser
+    from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+except ModuleNotFoundError:
+    class LlamaDocument:
+        def __init__(self, text: str) -> None:
+            self.text = text
+
+    SemanticSplitterNodeParser = None
+    HuggingFaceEmbedding = None
+
+if TYPE_CHECKING:
+    from llama_index.core.node_parser import SemanticSplitterNodeParser
 
 
 @dataclass(slots=True)
@@ -37,6 +49,11 @@ class DocumentChunker:
 
     def _get_splitter(self) -> SemanticSplitterNodeParser:
         if self._splitter is None:
+            if SemanticSplitterNodeParser is None or HuggingFaceEmbedding is None:
+                raise ModuleNotFoundError(
+                    "DocumentChunker requires the llama-index dependencies"
+                )
+
             embed_model = HuggingFaceEmbedding(
                 model_name=self._embedding_model,
             )
@@ -60,7 +77,7 @@ class DocumentChunker:
         chunks: list[ChunkInfo] = []
 
         for node in nodes:
-            text_node = cast(TextNode, node)
+            text_node = node
 
             start = text_node.start_char_idx
             end = text_node.end_char_idx

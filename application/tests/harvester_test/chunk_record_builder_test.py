@@ -68,6 +68,10 @@ class ChunkRecordBuilderTests(unittest.TestCase):
             document.artifact_id,
         )
 
+        self.assertEqual(record.pipeline_run_id, document.pipeline_run_id)
+        self.assertEqual(record.source, document.source)
+        self.assertEqual(record.locator, document.locator)
+
         self.assertEqual(
             record.text,
             text,

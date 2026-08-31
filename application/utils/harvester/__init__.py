@@ -39,7 +39,14 @@ from .document_deduplicator import DocumentDeduplicator
 from .checkpoint_manager import CheckpointManager
 from .incremental_pipeline import IncrementalPipeline
 from .deduplication_metrics import DeduplicationMetrics
-from .chunker import ChunkInfo, DocumentChunker
+
+
+def __getattr__(name: str):
+    if name in {"ChunkInfo", "DocumentChunker"}:
+        from .chunker import ChunkInfo, DocumentChunker
+
+        return {"ChunkInfo": ChunkInfo, "DocumentChunker": DocumentChunker}[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
     "ArtifactRegistry",
