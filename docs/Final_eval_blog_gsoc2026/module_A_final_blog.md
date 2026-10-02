@@ -5,7 +5,7 @@
 **Timeline:** July 13 – Aug 31, 2026  
 **Status:** Ready for Module B integration testing
 
-**Prerequisite:** Read [Week 1-6: Building the Foundation](#blog1) first.
+**Prerequisite:** Read Week 1-6: Building the Foundation first.
 
 ---
 
@@ -31,35 +31,16 @@ Week 2 introduced checkpoints in-memory. Week 7 **persists them to the database*
 
 ```python
 # Week 7: CheckpointStore (database-backed)
-@dataclass
-class Checkpoint:
-    repo: str  # "OWASP/ASVS"
-    pipeline_run_id: str  # "20260201T020000Z"
-    last_processed_commit: str  # Latest commit we processed
-    status: str  # "in_progress" | "completed" | "failed"
-    timestamp: datetime
+from datetime import datetime, timezone
 
-class CheckpointStore:
-    """Persist checkpoints to database for resumability."""
-    
-    def get_latest(self, repo: str) -> Optional[Checkpoint]:
-        """Get latest checkpoint for repo."""
-        row = db.query(CheckpointTable).filter(
-            CheckpointTable.repo == repo
-        ).order_by(CheckpointTable.timestamp.desc()).first()
-        
-        return Checkpoint(**row) if row else None
-    
-    def update(self, checkpoint: Checkpoint):
-        """Insert or update checkpoint."""
-        db.session.merge(CheckpointTable.from_checkpoint(checkpoint))
-        db.session.commit()
+from application.utils.harvester.checkpoint_store import CheckpointStore
+from application.utils.harvester.models import RepositoryCheckpoint
 
 # Usage in pipeline
 checkpoint_store = CheckpointStore()
-checkpoint = checkpoint_store.get_latest("OWASP/ASVS")
+checkpoint = checkpoint_store.load("owasp-asvs")
 
-if checkpoint and checkpoint.status == "completed":
+if checkpoint and checkpoint.last_processed_commit:
     # Resume from last successful commit
     base_commit = checkpoint.last_processed_commit
     logger.info(f"Resuming {repo} from {base_commit}")
@@ -73,13 +54,18 @@ for doc in pipeline.process(repo, base_commit):
     harvest_input.write(doc)
 
 # Mark completed
-checkpoint_store.update(Checkpoint(
-    repo=repo,
-    pipeline_run_id=pipeline_run_id,
+checkpoint_store.save(RepositoryCheckpoint(
+    repository_id="owasp-asvs",
     last_processed_commit=latest_commit,
-    status="completed"
+    updated_at=datetime.now(timezone.utc),
+    provider="github",
+    owner="OWASP",
+    repository="ASVS",
+    branch="master",
 ))
 ```
+
+> In the current runner, `IncrementalPipeline.process()` advances this repository checkpoint before chunk construction and the `harvest_input` commit. It records the source commit cursor, not end-to-end completion; a later write failure does not roll the checkpoint back.
 
 ### Artifact Registry: In-Memory Only
 
@@ -140,7 +126,7 @@ for doc in harvest_input.read():
 
 ---
 
-## Week 8: LlamaIndex Semantic Chunking
+## Week 8: Chunking Strategy Exploration
 
 **Timeline:** July 20 – July 26  
 **Goal:** Transform Documents into IngestChunkRecords  
@@ -149,6 +135,8 @@ for doc in harvest_input.read():
 ### Semantic Chunking Strategy
 
 Documents come in with full file content and heading structure. Now we chunk them **semantically**:
+
+> The following is illustrative pseudocode only. LlamaIndex is not a repository dependency or the production chunking implementation; production chunking follows the `repos.yaml` `markdown_heading` or `fixed_size` strategy.
 
 ```python
 from llama_index.core.text_splitter import SemanticSplitter
@@ -263,10 +251,11 @@ heading_path = ["V3", "Authentication", "MFA"]
 ```
 
 **Week 8 learnings:**
-- ✅ LlamaIndex semantic splitting works well
+
+- ✅ Config-driven chunking can preserve heading structure and token limits
 - ✅ Index-based chunk_id is simpler than content-addressed
 - ✅ Heading context is critical for downstream understanding
-- ❌ Embedding API calls add latency (mitigation: cache embeddings)
+- ❌ More advanced semantic strategies would add dependency and embedding-service complexity
 
 ---
 
@@ -276,17 +265,19 @@ heading_path = ["V3", "Authentication", "MFA"]
 **Goal:** Persist IngestChunkRecords to database  
 **Deliverables:** Database schema, validation, Module B handoff
 
-### Storage Layer: Database-Backed
+### Storage Layer: Illustrative Dedicated Table
 
 IngestChunkRecords are written to a database table for Module B to consume:
 
 ```python
+from application.database.db import generate_uuid
+
 class IngestChunkRecordRow(BaseModel):
     """Database persistence of IngestChunkRecord."""
     __tablename__ = "ingest_chunk_records"
-    
-    id = Column(String, primary_key=True)
-    
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+
     # RFC fields (complete)
     schema_version = Column(String, nullable=False)
     chunk_id = Column(String, nullable=False, unique=True, index=True)
@@ -310,15 +301,23 @@ class IngestChunkRecordRow(BaseModel):
     )
 
 # Writing records
-def emit_chunks(records: List[IngestChunkRecord], db):
-    """Persist validated IngestChunkRecords to database."""
-    
+def emit_chunks(artifact_id: str, records: List[IngestChunkRecord], db):
+    """Replace the stored chunk set for one artifact."""
+
+    # Validate the complete replacement before deleting any existing rows.
     for record in records:
-        # Validate RFC compliance
+        if record.artifact_id != artifact_id:
+            raise ValueError("record belongs to a different artifact")
         if not validate_rfc_record(record):
             logger.error(f"RFC validation failed: {record.chunk_id}")
-            continue
-        
+            raise ValueError(f"RFC validation failed: {record.chunk_id}")
+
+    # An empty record list also removes stale chunks for this artifact.
+    db.session.query(IngestChunkRecordRow).filter_by(
+        artifact_id=artifact_id
+    ).delete(synchronize_session=False)
+
+    for record in records:
         row = IngestChunkRecordRow(
             schema_version=record.schema_version,
             chunk_id=record.chunk_id,
@@ -376,9 +375,10 @@ LIMIT 100;  -- Batch processing
 ```
 
 **Week 9 learnings:**
-- ✅ Database tables enable queryability and resumability
-- ✅ JSON columns store complex RFC fields cleanly
-- ✅ Indexes on chunk_id, artifact_id, pipeline_run_id speed up Module B queries
+
+- ✅ Run-scoped database payloads make records available to Module B
+- ✅ JSON payloads carry complex RFC fields cleanly
+- ✅ A dedicated table could index chunk_id, artifact_id, and pipeline_run_id for downstream queries
 - ✅ Validation gates prevent RFC violations from reaching Module B
 
 ---
@@ -425,7 +425,17 @@ def test_e2e_pipeline():
     
     # Check database
     records = db.query(IngestChunkRecordRow).all()
-    for record in records:
+    for row in records:
+        record = IngestChunkRecord(
+            schema_version=row.schema_version,
+            chunk_id=row.chunk_id,
+            artifact_id=row.artifact_id,
+            pipeline_run_id=row.pipeline_run_id,
+            text=row.text,
+            span=SpanInfo(**json.loads(row.span)),
+            source=SourceInfo(**json.loads(row.source)),
+            locator=Locator(**json.loads(row.locator)),
+        )
         assert validate_rfc_record(record)
     
     assert len(records) == results.chunks_generated
@@ -483,12 +493,12 @@ Change Detection & Filtering
     ↓ git show HEAD:path (read complete files)
 Week 5: Content Hashing (in-memory ArtifactRegistry)
     ↓ dedup within run
-Week 6: Document Building
-    ↓ harvest_input table (Documents with full_text + headings)
-Week 8: Semantic Chunking (LlamaIndex)
+Week 6: Document Building (in memory)
+    ↓ full text + heading structure
+Week 8: Config-driven Chunking (markdown_heading / fixed_size)
     ↓ chk:artifact_id:index format
-Week 9: IngestChunkRecords to Database
-    ↓ ingest_chunk_records table
+Week 9: Validated ChangeRecords
+    ↓ run-scoped harvest_input payloads
 Module B Ready to Consume
 ```
 
@@ -514,7 +524,7 @@ sources:
 
 ## What Worked
 
-- ✅ Semantic chunking respects structure and content
+- ✅ Config-driven chunking respects document structure and size limits
 - ✅ Index-based chunk_id is simpler than content-addressed
 - ✅ Database-backed storage enables Module B integration
 - ✅ Checkpoint persistence makes nightly runs resilient
@@ -525,7 +535,7 @@ sources:
 
 ## What Was Hard
 
-- ❌ LlamaIndex embedding latency (mitigation: caching)
+- ❌ Balancing heading-aware chunks with maximum token limits
 - ❌ Heading extraction edge cases
 - ❌ Coordinating database schema with Module B
 - ❌ Deciding on index-based vs content-addressed chunk_id
@@ -556,13 +566,13 @@ The pipeline:
 2. Reads complete files (git show)
 3. Deduplicates content (in-memory)
 4. Builds documents (heading extraction)
-5. Chunks semantically (LlamaIndex)
+5. Chunks according to the repository's configured strategy
 6. Generates index-based chunk_ids
 7. Validates RFC compliance
-8. Persists to database
+8. Persists run-scoped ChangeRecord payloads to `harvest_input`
 9. Waits for Module B to consume
 
-All nightly. All resumable from checkpoints. All logged.
+All nightly. Repository scans resume from stored commit checkpoints. All logged.
 
 ---
 
@@ -587,10 +597,4 @@ All nightly. All resumable from checkpoints. All logged.
 
 To Spyros and Paola (mentors), Manshu (Module B), and Prateek (Module C): this wouldn't have shipped without your feedback on schema, coordination on handoffs, and patience through the pivots.
 
-To the OpenCRE community: your repos made this real.
-
 ---
-
-*Code: [GitHub PR #725 → PR #735](https://github.com/OpenCRE/OpenCRE). Architecture docs: `docs/gsoc_2026_module_a/`. First production nightly run: Sept 1, 2026.*
-
-*Next: Module B integration testing and classifier evaluation.*
